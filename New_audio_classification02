@@ -1,0 +1,105 @@
+import pandas as pd
+import numpy as np
+import librosa
+import os
+import joblib
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+classes = [
+    "air_conditioner", "car_horn", "children_playing", "dog_bark", "drilling", 
+    "engine_idling", "gun_shot", "jackhammer", "siren", "street_music"
+]
+
+# Paths to data
+train_csv_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\train_fuSp8nd.csv"
+test_csv_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\test_B0QdNpj.csv"
+audio_path_train = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\Train"
+audio_path_test = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\Test"
+
+# Load Train and Test Data
+train_data = pd.read_csv(train_csv_path)
+test_data = pd.read_csv(test_csv_path)
+
+# Normalize class labels in the dataset
+train_data['Class'] = train_data['Class'].str.lower().str.replace(' ', '_')
+
+# Debugging: Print unique labels
+print("Unique labels in dataset:", train_data['Class'].unique())
+print("Expected classes:", classes)
+
+def extract_features(audio_file):
+    try:
+        audio, sample_rate = librosa.load(audio_file, duration=4.0)
+        mfccs = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=40)
+        return np.mean(mfccs.T, axis=0)
+    except Exception as e:
+        print(f"Error processing {audio_file}: {str(e)}")
+        return None
+
+# Extract features for training data
+X_train, y_train = [], []
+for _, row in train_data.iterrows():
+    file_path = os.path.join(audio_path_train, str(row['ID']) + '.wav')
+    features = extract_features(file_path)
+    if features is not None:
+        X_train.append(features)
+        y_train.append(row['Class'])
+
+X_train = np.array(X_train)
+y_train = np.array(y_train)
+
+# Standardize features
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+
+# Encode labels
+encoder = LabelEncoder()
+encoder.fit(classes)  # Ensure all classes are recognized
+y_train = encoder.transform(y_train)
+
+# Train-test split
+X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+
+# Train the RandomForest model
+clf = RandomForestClassifier(n_estimators=200, random_state=42)
+clf.fit(X_train_split, y_train_split)
+
+# Save the trained model and preprocessing objects
+model_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\sound_classification_model.pkl"
+scaler_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\scaler.pkl"
+encoder_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\label_encoder.pkl"
+
+joblib.dump(clf, model_path)
+joblib.dump(scaler, scaler_path)
+joblib.dump(encoder, encoder_path)
+
+print("Model and preprocessing objects saved successfully.")
+
+# Validate the model
+y_val_pred = clf.predict(X_val_split)
+print("Validation Accuracy:", accuracy_score(y_val_split, y_val_pred))
+print("Classification Report:\n", classification_report(y_val_split, y_val_pred, target_names=classes))
+
+# Extract features for test data
+X_test = []
+for _, row in test_data.iterrows():
+    file_path = os.path.join(audio_path_test, str(row['ID']) + '.wav')
+    features = extract_features(file_path)
+    if features is not None:
+        X_test.append(features)
+
+X_test = np.array(X_test)
+X_test = scaler.transform(X_test)
+
+# Predict on test data
+y_test_pred = clf.predict(X_test)
+y_test_pred = encoder.inverse_transform(y_test_pred)
+
+# Save submission
+submission = pd.DataFrame({'ID': test_data['ID'], 'Class': y_test_pred})
+submission_path = r"c:\Users\JOAQUIM CELESTINO\Downloads\DataSCIENCEPACK\AUDIO DATA\submission.csv"
+submission.to_csv(submission_path, index=False)
+print("Submission saved to:", submission_path)
